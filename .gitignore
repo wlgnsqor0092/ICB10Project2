@@ -1,0 +1,50 @@
+# 파이썬 컴파일 및 캐시 파일
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# 가상환경 (venv, uv 등)
+.venv/
+venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebook 관련 파일
+.ipynb_checkpoints
+*/.ipynb_checkpoints/
+.ipython/
+
+# 대용량 및 데이터 분석 관련 파일 (일반적으로 Git에 업로드하지 않음)
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json
+*.xml
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.mat
+
+# 데이터 디렉토리 예시 (데이터 보관용 폴더를 무시하고자 할 때)
+data/
+datasets/
+raw_data/
+
+# 개발 환경 설정 (IDE)
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 환경 변수 및 설정 파일 (비밀번호, API 키 등 포함 가능성 있음)
+.env
+.env.local
+.env.*.local
