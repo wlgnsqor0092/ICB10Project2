@@ -48,3 +48,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# 모든 숨김 파일 및 폴더 제외
+.*
+!.gitignore
+!.gitkeep
