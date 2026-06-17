@@ -67,22 +67,53 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 세션 상태 초기화 (.env 파일에 설정된 값이 있다면 공백을 제거하고 기본값으로 사용)
+# 세션 상태 초기화 (Secrets 또는 .env 파일에 설정된 값이 있다면 공백을 제거하고 기본값으로 사용)
 if 'client_id' not in st.session_state:
-    cid_env = os.getenv('NAVER_CLIENT_ID', '')
-    st.session_state['client_id'] = cid_env.strip() if cid_env else ''
+    cid_val = ""
+    try:
+        if "naver_api" in st.secrets:
+            cid_val = st.secrets["naver_api"].get("client_id", "")
+        elif "client_id" in st.secrets:
+            cid_val = st.secrets.get("client_id", "")
+    except Exception:
+        pass
+    if not cid_val:
+        cid_val = os.getenv('NAVER_CLIENT_ID', '')
+    st.session_state['client_id'] = cid_val.strip() if cid_val else ''
+
 if 'client_secret' not in st.session_state:
-    csec_env = os.getenv('NAVER_CLIENT_SECRET', '')
-    st.session_state['client_secret'] = csec_env.strip() if csec_env else ''
+    csec_val = ""
+    try:
+        if "naver_api" in st.secrets:
+            csec_val = st.secrets["naver_api"].get("client_secret", "")
+        elif "client_secret" in st.secrets:
+            csec_val = st.secrets.get("client_secret", "")
+    except Exception:
+        pass
+    if not csec_val:
+        csec_val = os.getenv('NAVER_CLIENT_SECRET', '')
+    st.session_state['client_secret'] = csec_val.strip() if csec_val else ''
 
 # 2. 사이드바 구성
-cid_env = os.getenv('NAVER_CLIENT_ID', '').strip()
-csec_env = os.getenv('NAVER_CLIENT_SECRET', '').strip()
+# Secrets 또는 .env 파일에 키 정보가 이미 로드되어 있는 경우 사이드바 입력 폼을 생략하여 깔끔하게 UI 구성
+cid_loaded = False
+try:
+    if "naver_api" in st.secrets and st.secrets["naver_api"].get("client_id") and st.secrets["naver_api"].get("client_secret"):
+        cid_loaded = True
+    elif "client_id" in st.secrets and "client_secret" in st.secrets and st.secrets["client_id"] and st.secrets["client_secret"]:
+        cid_loaded = True
+except Exception:
+    pass
 
-# .env 파일에 키가 없는 경우에만 사이드바 입력 컴포넌트를 제공하여 깔끔하게 UI 구성
-if not cid_env or not csec_env:
+if not cid_loaded:
+    cid_env = os.getenv('NAVER_CLIENT_ID', '').strip()
+    csec_env = os.getenv('NAVER_CLIENT_SECRET', '').strip()
+    if cid_env and csec_env:
+        cid_loaded = True
+
+if not cid_loaded:
     st.sidebar.title("🛠️ 네이버 API 설정")
-    st.sidebar.warning("⚠️ .env 파일에 API 정보가 없습니다. 아래에 입력해 주세요.")
+    st.sidebar.warning("⚠️ Secrets 설정 또는 .env 파일에 API 정보가 없습니다. 아래에 입력해 주세요.")
     st.sidebar.text_input(
         "Client ID",
         key="client_id",
@@ -129,21 +160,37 @@ page = st.sidebar.radio(
 
 # API 인증 정보 검증 함수
 def check_api_credentials():
-    # 1순위: 환경 변수 (.env 로딩 값)
-    cid = os.getenv('NAVER_CLIENT_ID', '').strip()
-    csec = os.getenv('NAVER_CLIENT_SECRET', '').strip()
+    cid = ""
+    csec = ""
     
-    # 2순위: 사이드바에서 수동 입력된 세션 상태값
+    # 1순위: Streamlit Secrets (배포용 설정)
+    try:
+        if "naver_api" in st.secrets:
+            cid = st.secrets["naver_api"].get("client_id", "")
+            csec = st.secrets["naver_api"].get("client_secret", "")
+        elif "client_id" in st.secrets:
+            cid = st.secrets.get("client_id", "")
+            csec = st.secrets.get("client_secret", "")
+    except Exception:
+        pass
+        
+    # 2순위: 로컬 환경 변수 (.env 로드값)
+    if not cid:
+        cid = os.getenv('NAVER_CLIENT_ID', '').strip()
+    if not csec:
+        csec = os.getenv('NAVER_CLIENT_SECRET', '').strip()
+        
+    # 3순위: 사이드바 수동 입력값
     if not cid and 'client_id' in st.session_state:
         cid = st.session_state['client_id'].strip()
     if not csec and 'client_secret' in st.session_state:
         csec = st.session_state['client_secret'].strip()
         
     if not cid or not csec:
-        st.warning("⚠️ .env 파일 또는 사이드바에 네이버 API Client ID와 Client Secret을 설정해 주세요.")
+        st.warning("⚠️ Streamlit Secrets, .env 파일 또는 사이드바에 네이버 API Client ID와 Client Secret을 올바르게 설정해 주세요.")
         return False
         
-    # 세션 상태 갱신하여 호출부에서 꺼내 쓸 수 있도록 보장
+    # 최종 모듈 주입을 위해 세션 상태 갱신
     st.session_state['client_id'] = cid
     st.session_state['client_secret'] = csec
     return True
@@ -156,12 +203,20 @@ if page == "🏠 홈 및 사용 가이드":
     # API 연결 상태 확인
     col1, col2 = st.columns(2)
     with col1:
-        cid = os.getenv('NAVER_CLIENT_ID', '').strip() or st.session_state.get('client_id', '').strip()
-        csec = os.getenv('NAVER_CLIENT_SECRET', '').strip() or st.session_state.get('client_secret', '').strip()
-        if cid and csec:
-            st.success("✅ 네이버 API 인증 정보가 설정되었습니다. (.env 로딩 완료)")
+        # Secrets 또는 .env 파일 또는 세션에서 로드된 정보가 유효한지 검증
+        cid_loaded = False
+        try:
+            if ("naver_api" in st.secrets and st.secrets["naver_api"].get("client_id")) or st.secrets.get("client_id"):
+                cid_loaded = True
+        except Exception:
+            pass
+        if not cid_loaded:
+            cid_loaded = bool(os.getenv('NAVER_CLIENT_ID', '').strip() or st.session_state.get('client_id', '').strip())
+            
+        if cid_loaded:
+            st.success("✅ 네이버 API 인증 정보가 설정되었습니다. (연동 완료)")
         else:
-            st.info("ℹ️ 현재 API 인증 정보가 필요합니다. naver-api-app/.env 파일에 기입하거나 사이드바에 직접 입력해 주세요.")
+            st.info("ℹ️ 현재 API 인증 정보가 필요합니다. Secrets 설정 또는 .env 파일에 기입하거나 사이드바에 직접 입력해 주세요.")
             
     st.markdown("""
     ### 🚀 주요 제공 기능
