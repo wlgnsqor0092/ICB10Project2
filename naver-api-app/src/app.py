@@ -16,10 +16,15 @@ import plotly.express as px
 from urllib.parse import urlparse
 import sys
 import os
+from dotenv import load_dotenv
 
 # 상대 경로 임포트를 위한 path 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from naver_api import get_search_trend, get_shopping_trend, search_naver
+
+# .env 파일 로드 (.env 파일이 존재하면 환경변수로 등록)
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+load_dotenv(dotenv_path=env_path)
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -62,36 +67,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 세션 상태 초기화
+# 세션 상태 초기화 (.env 파일에 설정된 값이 있다면 공백을 제거하고 기본값으로 사용)
 if 'client_id' not in st.session_state:
-    st.session_state['client_id'] = ''
+    cid_env = os.getenv('NAVER_CLIENT_ID', '')
+    st.session_state['client_id'] = cid_env.strip() if cid_env else ''
 if 'client_secret' not in st.session_state:
-    st.session_state['client_secret'] = ''
+    csec_env = os.getenv('NAVER_CLIENT_SECRET', '')
+    st.session_state['client_secret'] = csec_env.strip() if csec_env else ''
 
 # 2. 사이드바 구성
-st.sidebar.title("🛠️ 네이버 API 설정")
+cid_env = os.getenv('NAVER_CLIENT_ID', '').strip()
+csec_env = os.getenv('NAVER_CLIENT_SECRET', '').strip()
 
-# API 인증 정보 입력 (Password 타입으로 마스킹)
-client_id = st.sidebar.text_input(
-    "Client ID",
-    value=st.session_state['client_id'],
-    type="password",
-    help="네이버 개발자 센터에서 발급받은 Client ID를 입력하세요."
-)
-client_secret = st.sidebar.text_input(
-    "Client Secret",
-    value=st.session_state['client_secret'],
-    type="password",
-    help="네이버 개발자 센터에서 발급받은 Client Secret을 입력하세요."
-)
-
-# 입력값을 세션 상태에 동기화
-if client_id:
-    st.session_state['client_id'] = client_id
-if client_secret:
-    st.session_state['client_secret'] = client_secret
-
-st.sidebar.markdown("---")
+# .env 파일에 키가 없는 경우에만 사이드바 입력 컴포넌트를 제공하여 깔끔하게 UI 구성
+if not cid_env or not csec_env:
+    st.sidebar.title("🛠️ 네이버 API 설정")
+    st.sidebar.warning("⚠️ .env 파일에 API 정보가 없습니다. 아래에 입력해 주세요.")
+    st.sidebar.text_input(
+        "Client ID",
+        key="client_id",
+        type="password",
+        help="네이버 개발자 센터에서 발급받은 Client ID를 입력하세요."
+    )
+    st.sidebar.text_input(
+        "Client Secret",
+        key="client_secret",
+        type="password",
+        help="네이버 개발자 센터에서 발급받은 Client Secret을 입력하세요."
+    )
+    st.sidebar.markdown("---")
 st.sidebar.title("🔍 검색 및 분석 필터")
 
 # 분석 키워드 입력
@@ -125,9 +129,23 @@ page = st.sidebar.radio(
 
 # API 인증 정보 검증 함수
 def check_api_credentials():
-    if not st.session_state['client_id'] or not st.session_state['client_secret']:
-        st.warning("👈 왼쪽 사이드바에서 네이버 API Client ID와 Client Secret을 먼저 입력해 주세요.")
+    # 1순위: 환경 변수 (.env 로딩 값)
+    cid = os.getenv('NAVER_CLIENT_ID', '').strip()
+    csec = os.getenv('NAVER_CLIENT_SECRET', '').strip()
+    
+    # 2순위: 사이드바에서 수동 입력된 세션 상태값
+    if not cid and 'client_id' in st.session_state:
+        cid = st.session_state['client_id'].strip()
+    if not csec and 'client_secret' in st.session_state:
+        csec = st.session_state['client_secret'].strip()
+        
+    if not cid or not csec:
+        st.warning("⚠️ .env 파일 또는 사이드바에 네이버 API Client ID와 Client Secret을 설정해 주세요.")
         return False
+        
+    # 세션 상태 갱신하여 호출부에서 꺼내 쓸 수 있도록 보장
+    st.session_state['client_id'] = cid
+    st.session_state['client_secret'] = csec
     return True
 
 # 3. 메인 화면 구성
@@ -138,10 +156,12 @@ if page == "🏠 홈 및 사용 가이드":
     # API 연결 상태 확인
     col1, col2 = st.columns(2)
     with col1:
-        if st.session_state['client_id'] and st.session_state['client_secret']:
-            st.success("✅ 네이버 API 인증 정보가 입력되었습니다.")
+        cid = os.getenv('NAVER_CLIENT_ID', '').strip() or st.session_state.get('client_id', '').strip()
+        csec = os.getenv('NAVER_CLIENT_SECRET', '').strip() or st.session_state.get('client_secret', '').strip()
+        if cid and csec:
+            st.success("✅ 네이버 API 인증 정보가 설정되었습니다. (.env 로딩 완료)")
         else:
-            st.info("ℹ️ 현재 API 인증 정보가 필요합니다. 사이드바를 확인해 주세요.")
+            st.info("ℹ️ 현재 API 인증 정보가 필요합니다. naver-api-app/.env 파일에 기입하거나 사이드바에 직접 입력해 주세요.")
             
     st.markdown("""
     ### 🚀 주요 제공 기능
@@ -270,7 +290,9 @@ elif page == "🛍️ 쇼핑 카테고리 트렌드":
             "식품": "50000006",
             "스포츠/레저": "50000007",
             "생활/건강": "50000008",
-            "여가/생활편의": "50000009"
+            "여가/생활편의": "50000009",
+            "면세점": "50000010",
+            "도서": "50005542"
         }
         
         selected_cats = st.multiselect(
