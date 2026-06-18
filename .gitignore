@@ -52,6 +52,7 @@ Thumbs.db
 # 모든 숨김 파일 및 폴더 제외
 .*
 !.gitignore
+!.agents/
 !.gitkeep
 !.streamlit/
 .streamlit/secrets.toml
