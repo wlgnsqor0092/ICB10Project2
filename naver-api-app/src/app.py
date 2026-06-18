@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 # 상대 경로 임포트를 위한 path 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from naver_api import get_search_trend, get_shopping_trend, search_naver
+from naver_api import get_search_trend, get_shopping_trend, search_naver, fetch_all_channels, analyze_word_frequency
 
 # .env 파일 로드 (.env 파일이 존재하면 환경변수로 등록)
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
@@ -158,6 +158,7 @@ page = st.sidebar.radio(
     "메뉴 선택",
     [
         "🏠 홈 및 사용 가이드",
+        "📊 다중 검색어 종합 분석",
         "📈 검색어 트렌드 분석",
         "🛍️ 쇼핑 카테고리 트렌드",
         "🔍 검색 데이터 상세 분석"
@@ -195,12 +196,14 @@ if page == "🏠 홈 및 사용 가이드":
             
     st.markdown("""
     ### 🚀 주요 제공 기능
-    1. **검색어 트렌드 분석**
+    1. **다중 검색어 종합 분석**
+       - 네이버 뉴스, 블로그, 카페 데이터를 병렬로 동시 수집하여 검색어별 트렌드 및 유입 채널을 종합 분석합니다.
+    2. **검색어 트렌드 분석**
        - 네이버 통합검색 내 다중 검색어들의 상대적 클릭 트렌드를 실시간 시계열 그래프로 비교 분석합니다.
        - 기간별 최고 검색율이 발생한 시점 및 평균 점유율을 추적합니다.
-    2. **쇼핑 카테고리 트렌드**
+    3. **쇼핑 카테고리 트렌드**
        - 쇼핑인사이트 API를 활용하여 패션, 가전, 식품 등 주요 쇼핑 분류의 트렌드 변화를 분석합니다.
-    3. **검색 데이터 상세 분석**
+    4. **검색 데이터 상세 분석**
        - 입력한 핵심 키워드에 대해 네이버 블로그, 카페글, 뉴스, 쇼핑 리스트 데이터를 즉시 수집합니다.
        - 상품 가격 분포(박스플롯), 뉴스 언론사별 보도 비중(파이차트), 콘텐츠 작성자/플랫폼 분포 등을 심층 시각화합니다.
 
@@ -210,6 +213,208 @@ if page == "🏠 홈 및 사용 가이드":
     3. 발급받은 **Client ID**와 **Client Secret** 키를 사이드바의 입력란에 기입합니다.
     4. 분석할 키워드와 기간을 설정하고 메뉴를 이동하여 분석을 시작하세요!
     """)
+
+elif page == "📊 다중 검색어 종합 분석":
+    st.title("📊 다중 검색어 종합 채널 분석 (뉴스·블로그·카페)")
+    
+    if check_api_credentials():
+        if not keywords:
+            st.warning("최소 한 개 이상의 검색어를 입력해 주세요.")
+        else:
+            st.markdown("입력한 여러 검색어들에 대해 네이버 뉴스, 블로그, 카페 데이터를 병렬로 수집하여 트렌드 및 유입 채널 비중을 종합적으로 비교합니다.")
+            
+            # 수집 옵션 설정
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                display_num = st.slider("검색어별/채널별 수집 건수", min_value=10, max_value=50, value=30, step=10, help="한 번에 많은 호출을 처리하므로 속도 최적화를 위해 30~50건을 권장합니다.")
+            with col_opt2:
+                sort_option = st.selectbox(
+                    "정렬 방식 선택",
+                    ["sim", "date"],
+                    format_func=lambda x: "유사도/정확도순" if x == "sim" else "최신 발행일순",
+                    key="multisearch_sort"
+                )
+                
+            # 캐싱된 통합 수집 함수 실행
+            @st.cache_data(show_spinner=False)
+            def load_all_channel_data(cid, csec, kws, d_num, s_opt):
+                return fetch_all_channels(cid, csec, kws, display=d_num, sort=s_opt)
+                
+            try:
+                with st.spinner("다중 검색어에 대해 뉴스, 블로그, 카페 데이터를 수집 및 분석하는 중..."):
+                    df_all = load_all_channel_data(
+                        st.session_state['client_id'],
+                        st.session_state['client_secret'],
+                        keywords,
+                        display_num,
+                        sort_option
+                    )
+                    
+                if df_all.empty:
+                    st.warning("수집된 데이터가 없습니다. 검색어나 키워드 설정을 확인하세요.")
+                else:
+                    # 1. 종합 지표 요약 (Bento Grid)
+                    st.subheader("🔑 통합 채널 현황")
+                    total_collected = len(df_all)
+                    
+                    metric_cols = st.columns(3)
+                    with metric_cols[0]:
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-title">총 수집 문서 수</div>
+                            <div class="metric-value">{total_collected}건</div>
+                            <div class="metric-delta" style="color: #007bff;">📋 전체 검색어 합산</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with metric_cols[1]:
+                        top_channel = df_all["채널"].value_counts().idxmax()
+                        top_channel_count = df_all["채널"].value_counts().max()
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-title">주요 발행 채널</div>
+                            <div class="metric-value">{top_channel}</div>
+                            <div class="metric-delta" style="color: #28a745;">📈 {top_channel_count}건 점유</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with metric_cols[2]:
+                        top_keyword = df_all["검색어"].value_counts().idxmax()
+                        top_keyword_count = df_all["검색어"].value_counts().max()
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-title">가장 언급 많은 검색어</div>
+                            <div class="metric-value">{top_keyword}</div>
+                            <div class="metric-delta" style="color: #ffc107;">🔥 {top_keyword_count}건 수집</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 2. 채널 점유율 및 검색어별 비교 파이차트
+                    st.subheader("📈 채널 점유율 및 검색어 지표 비교")
+                    col_chart1, col_chart2 = st.columns(2)
+                    
+                    with col_chart1:
+                        # 채널 비율 파이 차트
+                        df_chan_share = df_all["채널"].value_counts().reset_index()
+                        df_chan_share.columns = ["채널", "문서수"]
+                        fig_chan = px.pie(
+                            df_chan_share,
+                            values="문서수",
+                            names="채널",
+                            title="전체 채널 점유율 (뉴스 vs 블로그 vs 카페)",
+                            color_discrete_sequence=px.colors.qualitative.Bold
+                        )
+                        st.plotly_chart(fig_chan, use_container_width=True)
+                        
+                    with col_chart2:
+                        # 검색어별 채널 언급량 비교 차트
+                        df_keyword_share = df_all.groupby(["검색어", "채널"]).size().reset_index(name="문서수")
+                        fig_kws = px.bar(
+                            df_keyword_share,
+                            x="검색어",
+                            y="문서수",
+                            color="채널",
+                            title="검색어별 채널 언급량 비교",
+                            barmode="group",
+                            color_discrete_sequence=px.colors.qualitative.Bold
+                        )
+                        fig_kws.update_layout(plot_bgcolor="white")
+                        st.plotly_chart(fig_kws, use_container_width=True)
+
+                    # 3. 날짜 기준 통합 발행량 시계열 차트
+                    st.subheader("📅 채널 통합 일자별 트렌드")
+                    
+                    # postdate 파싱
+                    df_all["발행일"] = pd.to_datetime(df_all["postdate"], errors="coerce")
+                    # 뉴스 pubDate 파싱
+                    news_mask = df_all["발행일"].isna()
+                    if news_mask.any():
+                        df_all.loc[news_mask, "발행일"] = pd.to_datetime(df_all.loc[news_mask, "pubDate"], errors="coerce")
+                    
+                    df_all["날짜"] = df_all["발행일"].dt.date
+                    
+                    df_timeline = df_all[df_all["날짜"].notna()].groupby(["날짜", "검색어"]).size().reset_index(name="발행수")
+                    df_timeline = df_timeline.sort_values("날짜")
+                    
+                    if not df_timeline.empty:
+                        fig_line = px.line(
+                            df_timeline,
+                            x="날짜",
+                            y="발행수",
+                            color="검색어",
+                            title="일자별 검색어 총 언급 트렌드",
+                            labels={"발행수": "언급 수 (뉴스+블로그+카페)", "날짜": "작성일"},
+                            color_discrete_sequence=px.colors.qualitative.Bold
+                        )
+                        fig_line.update_layout(
+                            hovermode="x unified",
+                            plot_bgcolor="white"
+                        )
+                        fig_line.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
+                        fig_line.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
+                        st.plotly_chart(fig_line, use_container_width=True)
+                    else:
+                        st.info("날짜 정보를 변환할 수 없어 타임라인 차트를 표시하지 못했습니다.")
+
+                    # 4. 검색어별 상세 탭 비교 및 경량 단어 빈도 분석
+                    st.subheader("🔍 검색어별 상세 채널 마이닝")
+                    
+                    tabs = st.tabs(keywords)
+                    for idx, kw in enumerate(keywords):
+                        with tabs[idx]:
+                            df_kw = df_all[df_all["검색어"] == kw]
+                            if df_kw.empty:
+                                st.write("해당 검색어에 수집된 데이터가 없습니다.")
+                                continue
+                                
+                            col_kw1, col_kw2 = st.columns(2)
+                            
+                            with col_kw1:
+                                st.write("🏷️ **가장 빈번하게 언급된 단어 Top 10**")
+                                titles = df_kw["title_clean"].tolist()
+                                word_freqs = analyze_word_frequency(titles, top_n=10)
+                                
+                                if word_freqs:
+                                    df_freq = pd.DataFrame(word_freqs, columns=["단어", "빈도수"])
+                                    fig_word = px.bar(
+                                        df_freq,
+                                        y="단어",
+                                        x="빈도수",
+                                        orientation="h",
+                                        title=f"'{kw}' 언급 핵심 단어 빈도",
+                                        color_discrete_sequence=["#00C73C"]
+                                    )
+                                    fig_word.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor="white")
+                                    st.plotly_chart(fig_word, use_container_width=True)
+                                else:
+                                    st.info("단어 빈도를 분석할 텍스트가 부족합니다.")
+                                    
+                            with col_kw2:
+                                st.write("📊 **채널별 수집 비중**")
+                                df_kw_chan = df_kw["채널"].value_counts().reset_index()
+                                df_kw_chan.columns = ["채널", "문서수"]
+                                fig_kw_chan = px.bar(
+                                    df_kw_chan,
+                                    x="채널",
+                                    y="문서수",
+                                    title=f"'{kw}' 채널별 언급 비중",
+                                    color="채널",
+                                    color_discrete_sequence=px.colors.qualitative.Pastel
+                                )
+                                fig_kw_chan.update_layout(plot_bgcolor="white")
+                                st.plotly_chart(fig_kw_chan, use_container_width=True)
+                                
+                            st.write("📄 **수집 데이터 전체 목록 (최근 10개 기사/포스트 우선)**")
+                            st.dataframe(
+                                df_kw[["채널", "title_clean", "link"]].rename(
+                                    columns={
+                                        "title_clean": "제목",
+                                        "link": "이동링크"
+                                    }
+                                ).head(10),
+                                use_container_width=True
+                            )
+                            
+            except Exception as e:
+                st.error(f"오류가 발생했습니다: {str(e)}")
 
 elif page == "📈 검색어 트렌드 분석":
     st.title("📈 네이버 검색어 트렌드 분석 (Datalab)")
